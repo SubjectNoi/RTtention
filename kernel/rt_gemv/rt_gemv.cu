@@ -44,7 +44,7 @@ static void context_log_cb( unsigned int level, const char* tag, const char* mes
 
 class rt_pipe {
 public:
-    OptixDeviceContext              context;
+    OptixDeviceContext              context             = nullptr;
     OptixDeviceProperty             property            = {};
     CUcontext                       cuCtx               = 0;
     OptixDeviceContextOptions       options             = {};
@@ -72,6 +72,7 @@ public:
         std::cout << "c" << std::endl;
         CUDA_CHECK(cudaFree(0));
         std::cout << "d" << std::endl;
+        OPTIX_CHECK(optixInit());
         OPTIX_CHECK(optixDeviceContextCreate(cuCtx, &options, &context));
         std::cout << "e" << std::endl;
         accel_options.buildFlags = OPTIX_BUILD_FLAG_ALLOW_COMPACTION;
@@ -145,7 +146,7 @@ void rt_pipe::build_index_from_codebook(half* codebook) {
     pipeline_compile_options.usesPrimitiveTypeFlags = OPTIX_PRIMITIVE_TYPE_FLAGS_SPHERE;
 
     std::string input_shader;
-    std::ifstream file(std::string("/home/zhliu/workspace/RTtention/kernel/rt_gemv/rt_gemv_shader.optixir"), std::ios::binary);
+    std::ifstream file(std::string("/home/wennitao/workspace/RTtention/kernel/rt_gemv/rt_gemv_shader.optixir"), std::ios::binary);
     if (file.good()) {
         std::vector<unsigned char> buffer = std::vector<unsigned char>(std::istreambuf_iterator<char>(file), {});
         input_shader.assign(buffer.begin(), buffer.end());
