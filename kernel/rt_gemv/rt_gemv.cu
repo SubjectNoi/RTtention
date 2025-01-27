@@ -58,7 +58,7 @@ public:
 	OptixPipeline                   pipeline            = nullptr;
     OptixShaderBindingTable         sbt                 = {};
 
-    float3*                         d_ray_origin;
+    float*                          d_ray_origin;
     Params                          params;
     float*                          d_hit_record;
 
@@ -85,37 +85,39 @@ public:
         std::cout << "i" << std::endl;
 	}
 
-	void build_index_from_codebook(half* codebook);
+	void build_index_from_codebook(half* codebook, float* centers, float* radius);
 
-    void set_ray_origin(float3* host_ray_origin, int num_rays);
+    void set_ray_origin(float* ray_origin, int num_rays);
 
     void run();
 };
 
 // Codebook: (SPACE=64, ENTRY=256, 2)
-void rt_pipe::build_index_from_codebook(half* codebook) {
+void rt_pipe::build_index_from_codebook(half* d_codebook, float* centers, float* radius) {
 
     std::cout << "Begin" << std::endl;
-    float3 *centers = new float3 [SPACE * ENTRY];
-    float  *radius  = new float  [SPACE * ENTRY];
-    for (int level = 0; level < SPACE; level++) {
-        for (int entry = 0; entry < ENTRY; entry++) {
-            int idx = level * ENTRY + entry;
-            float x = __half2float(codebook[level * ENTRY * 2 + entry * 2 + 0]);
-            float y = __half2float(codebook[level * ENTRY * 2 + entry * 2 + 1]);
-            float z = level * 2 + 1; // 1, 3, 5, 7, ..., 127
-            centers[idx] = make_float3(x, y, z);
-            radius[idx] = sqrt(RADIUS * RADIUS + x * x + y * y);
-        }
-    }
+    // float3 *centers = new float3 [SPACE * ENTRY];
+    // float  *radius  = new float  [SPACE * ENTRY];
+    // for (int level = 0; level < SPACE; level++) {
+    //     for (int entry = 0; entry < ENTRY; entry++) {
+    //         int idx = level * ENTRY + entry;
+    //         float x = __half2float(codebook[level * ENTRY * 2 + entry * 2 + 0]);
+    //         float y = __half2float(codebook[level * ENTRY * 2 + entry * 2 + 1]);
+    //         float z = level * 2 + 1; // 1, 3, 5, 7, ..., 127
+    //         centers[idx] = make_float3(x, y, z);
+    //         radius[idx] = sqrt(RADIUS * RADIUS + x * x + y * y);
+    //     }
+    // }
 
     std::cout << "0" << std::endl;
     CUdeviceptr d_centers;
     CUdeviceptr d_radius;
-    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_centers), SPACE * ENTRY * sizeof(float3)));
-    CUDA_CHECK(cudaMemcpy(reinterpret_cast<void*>(d_centers), centers, SPACE * ENTRY * sizeof(float3), cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_radius), SPACE * ENTRY * sizeof(float)));
-    CUDA_CHECK(cudaMemcpy(reinterpret_cast<void*>(d_radius), radius, SPACE * ENTRY * sizeof(float), cudaMemcpyHostToDevice));
+    d_centers = reinterpret_cast<CUdeviceptr>(centers);
+    d_radius = reinterpret_cast<CUdeviceptr>(radius);
+    // CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_centers), SPACE * ENTRY * sizeof(float3)));
+    // CUDA_CHECK(cudaMemcpy(reinterpret_cast<void*>(d_centers), centers, SPACE * ENTRY * sizeof(float3), cudaMemcpyHostToDevice));
+    // CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_radius), SPACE * ENTRY * sizeof(float)));
+    // CUDA_CHECK(cudaMemcpy(reinterpret_cast<void*>(d_radius), radius, SPACE * ENTRY * sizeof(float), cudaMemcpyHostToDevice));
 
     uint32_t sphere_input_flags[1] = {OPTIX_GEOMETRY_FLAG_NONE};
     OptixBuildInput sphere_input = {};
@@ -130,10 +132,12 @@ void rt_pipe::build_index_from_codebook(half* codebook) {
     OPTIX_CHECK(optixAccelComputeMemoryUsage(context, &accel_options, &sphere_input, 1, &gas_buffer_sizes));
     CUdeviceptr d_temp_buffer_gas;
     CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_temp_buffer_gas), gas_buffer_sizes.tempSizeInBytes));
+    CUdeviceptr d_gas_output_buffer;
     CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_gas_output_buffer), gas_buffer_sizes.outputSizeInBytes));
     OPTIX_CHECK(optixAccelBuild(context, 0, &accel_options, &sphere_input, 1, d_temp_buffer_gas, gas_buffer_sizes.tempSizeInBytes, d_gas_output_buffer, gas_buffer_sizes.outputSizeInBytes, &gas_handle, nullptr, 0));    
     CUDA_CHECK(cudaFree(reinterpret_cast<void*>(d_temp_buffer_gas)));
     std::cout << "1" << std::endl;
+
     OptixModule module = nullptr;
     OptixModule shpere_module;
     OptixModuleCompileOptions module_compile_options = {};
@@ -281,11 +285,13 @@ void rt_pipe::build_index_from_codebook(half* codebook) {
     std::cout << "4" << std::endl;
     params.handle = gas_handle;
     params.radius = 0.5;
-    CUDA_CHECK(cudaMemcpy(reinterpret_cast<void*>(d_params), &params, sizeof(Params), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_params), sizeof(params)));
+    CUDA_CHECK(cudaMemcpy(reinterpret_cast<void*>(d_params), &params, sizeof(params), cudaMemcpyHostToDevice));
 }
 
-void rt_pipe::set_ray_origin(float3* host_ray_origin, int num_rays) {
-    CUDA_CHECK(cudaMemcpy(reinterpret_cast<void*>(d_ray_origin), host_ray_origin, sizeof(float3) * 1 * num_rays, cudaMemcpyHostToDevice));
+void rt_pipe::set_ray_origin(float* ray_origin, int num_rays) {
+    // CUDA_CHECK(cudaMemcpy(reinterpret_cast<void*>(d_ray_origin), host_ray_origin, sizeof(float3) * 1 * num_rays, cudaMemcpyHostToDevice));
+    d_ray_origin = ray_origin;
 }
 
 void rt_pipe::run() {
@@ -295,7 +301,10 @@ void rt_pipe::run() {
 torch::Tensor rt_gemv(
     torch::Tensor input,
     torch::Tensor quantized_w,
-    torch::Tensor codebook
+    torch::Tensor codebook, 
+    torch::Tensor centers, 
+    torch::Tensor radius, 
+    torch::Tensor origins
 )
 {
 	auto head_dim = input.size(1);
@@ -304,19 +313,23 @@ torch::Tensor rt_gemv(
 
 	half* codebook_ptr = reinterpret_cast<half*>(codebook.data_ptr<at::Half>());
     half* input_ptr = reinterpret_cast<half*>(input.data_ptr<at::Half>());
+    float* centers_ptr = centers.data_ptr<float>();
+    float* radius_ptr = radius.data_ptr<float>();
+    float* origins_ptr = origins.data_ptr<float>();
 
     std::cout << "Work Begins" << std::endl;
 	rt_pipe pipe;
-	pipe.build_index_from_codebook(codebook_ptr);
+	pipe.build_index_from_codebook(codebook_ptr, centers_ptr, radius_ptr);
     std::cout << "Pipeline built" << std::endl;
     // Set ray origin with input
-    float3 *h_ray_origin = new float3 [SPACE];
-    for (int ray = 0; ray < SPACE; ray++) {
-        float x = __half2float(input_ptr[ray * 2 + 0]);
-        float y = __half2float(input_ptr[ray * 2 + 1]);
-        float z = ray * 2;
-    }
-    pipe.set_ray_origin(h_ray_origin, SPACE);
+    // float3 *h_ray_origin = new float3 [SPACE];
+    // for (int ray = 0; ray < SPACE; ray++) {
+    //     float x = __half2float(input_ptr[ray * 2 + 0]);
+    //     float y = __half2float(input_ptr[ray * 2 + 1]);
+    //     float z = ray * 2;
+    // }
+    // pipe.set_ray_origin(h_ray_origin, SPACE);
+    pipe.set_ray_origin(origins_ptr, SPACE);  
     std::cout << "Origin set" << std::endl;
 
     // Launch ray tracing pipeline

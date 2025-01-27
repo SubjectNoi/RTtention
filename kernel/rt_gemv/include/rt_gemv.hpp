@@ -6,7 +6,7 @@ struct Params {
 };
 
 struct RayGenData {
-    float3* ray_origin;
+    float* ray_origin;
 };
 
 struct MissData {

@@ -3,7 +3,7 @@
 #include <cuda_runtime.h>
 #include "rt_gemv.hpp"
 
-// nvcc -o rt_gemv_shader.optixir --optix-ir -I ${OptiX_INSTALL_DIR}/include/ -I ${OptiX_INSTALL_DIR}/SDK/ -I ${OptiX_INSTALL_DIR}/SDK/support -I ${OptiX_INSTALL_DIR}/SDK/build -I /home/zhliu/workspace/RTtention/kernel/rt_gemv/include rt_gemv_shader.cu
+// nvcc -o rt_gemv_shader.optixir --optix-ir -I ${OptiX_INSTALL_DIR}/include/ -I ${OptiX_INSTALL_DIR}/SDK/ -I ${OptiX_INSTALL_DIR}/SDK/support -I ${OptiX_INSTALL_DIR}/SDK/build -I /home/wennitao/workspace/RTtention/kernel/rt_gemv/include kernel/rt_gemv/rt_gemv_shader.cu
 
 extern "C" {
     __constant__ Params params;
@@ -15,7 +15,9 @@ extern "C" __global__ void __raygen__rg() {
     const float3 direction = make_float3(0.0f, 0.0f, 1.0f);
     const RayGenData* rgData = (RayGenData*)optixGetSbtDataPointer();
     int ray_idx = idx.x * dim.y * dim.z + idx.y * dim.z + idx.z ;
-    const float3 origin = rgData->ray_origin[ray_idx];
+    const float3 origin = make_float3 (rgData->ray_origin[ray_idx * 3], rgData->ray_origin[ray_idx * 3 + 1], rgData->ray_origin[ray_idx * 3 + 2]);
+    // const float tmp = rgData->ray_origin[ray_idx];
+    // const float3 origin = make_float3 (tmp, tmp, tmp);
     printf("Ray:%d : (%6.3f, %6.3f, %6.3f)\n", ray_idx, origin.x, origin.y, origin.z);
     optixTrace(params.handle, 
                origin, 

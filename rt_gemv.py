@@ -25,10 +25,43 @@ codebook = torch.load("/home/wennitao/workspace/RTtention/codebook.pt").to(dev)
 weight_dequantized = torch.load("/home/wennitao/workspace/RTtention/weight_dequantized.pt").type(torch.float16).to(dev)
 IN = torch.randn((1, 128)).type(torch.float16).to(dev)
 
-# print(codebook.shape)
+SPACE = 64
+ENTRY = 256
+# centers = torch.zeros ((64 * 256 * 3), dtype=torch.float32).to(dev)
+# Compute idx tensor (flattened indices)
+idx = torch.arange(SPACE * ENTRY, dtype=torch.int32)
+
+# Compute level and entry indices
+levels = idx // ENTRY
+entries = idx % ENTRY
+
+print (codebook.shape)
+
+# Compute x, y, z
+x = codebook[levels, entries, 0]
+y = codebook[levels, entries, 1]
+z = levels * 2 + 1  # Vectorized calculation for z
+z = z.to(dev)
+
+# Compute centers
+centers = torch.zeros((SPACE * ENTRY, 3), dtype=torch.float32).to(dev)
+centers[idx, 0] = x.float()
+centers[idx, 1] = y.float()
+centers[idx, 2] = z.float()
+
+RADIUS = 0.5
+
+# Compute radius
+radius = torch.sqrt(RADIUS ** 2 + x ** 2 + y ** 2).type (torch.float32).to(dev)
+
+idx = torch.arange(SPACE, dtype=torch.int32)
+origins = torch.zeros((SPACE, 3), dtype=torch.float32).to(dev)
+origins[idx, 0] = IN[:, idx * 2].type (torch.float32)
+origins[idx, 1] = IN[:, idx * 2 + 1].type (torch.float32)
+origins[idx, 2] = (idx * 2).type (torch.float32).to (dev)
 
 # # Reference, pick top-65536 (6.25%)
 # OUT_REF = torch.matmul(IN, weight_dequantized.transpose(0, 1))
-OUT = rt_gemv(IN, weight_quantized, codebook)
+OUT = rt_gemv(IN, weight_quantized, codebook, centers, radius, origins)
 
 
