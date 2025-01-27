@@ -3,7 +3,7 @@
 #include <cuda_runtime.h>
 #include "rt_gemv.hpp"
 
-// nvcc -o rt_gemv_shader.optixir --optix-ir -I ${OptiX_INSTALL_DIR}/include/ -I ${OptiX_INSTALL_DIR}/SDK/ -I ${OptiX_INSTALL_DIR}/SDK/support -I ${OptiX_INSTALL_DIR}/SDK/build -I /home/wennitao/workspace/RTtention/kernel/rt_gemv/include kernel/rt_gemv/rt_gemv_shader.cu
+// nvcc -o rt_gemv_shader.optixir --optix-ir -I ${OptiX_INSTALL_DIR}/include/ -I ${OptiX_INSTALL_DIR}/SDK/ -I ${OptiX_INSTALL_DIR}/SDK/support -I ${OptiX_INSTALL_DIR}/SDK/build -I /home/wennitao/workspace/RTtention/kernel/rt_gemv/include rt_gemv_shader.cu
 
 extern "C" {
     __constant__ Params params;
