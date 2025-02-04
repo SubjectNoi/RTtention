@@ -66,6 +66,7 @@ public:
 public:
 	rt_pipe() {
         std::cout << "a" << std::endl;
+        options.validationMode = OPTIX_DEVICE_CONTEXT_VALIDATION_MODE_ALL;
 		options.logCallbackFunction = &context_log_cb;
         std::cout << "b" << std::endl;
         options.logCallbackLevel = 4;
@@ -89,7 +90,7 @@ public:
 
     void set_ray_origin(float* ray_origin, int num_rays);
 
-    void run();
+    void run(int num_rays);
 };
 
 // Codebook: (SPACE=64, ENTRY=256, 2)
@@ -159,6 +160,11 @@ void rt_pipe::build_index_from_codebook(half* d_codebook, float* centers, float*
     size_t sizeof_log = sizeof(log);
     OPTIX_CHECK_LOG(optixModuleCreate(context, &module_compile_options, &pipeline_compile_options, input_shader.c_str(), shader_binary_size, log, &sizeof_log, &module));
     
+    // size_t      inputSize = 0;
+    // const char* input = sutil::getInputData( OPTIX_SAMPLE_NAME, OPTIX_SAMPLE_DIR, "optixSphere.cu", inputSize );
+    // OPTIX_CHECK_LOG( optixModuleCreate( context, &module_compile_options, &pipeline_compile_options, input,
+    //                                             inputSize, LOG, &LOG_SIZE, &module ) );
+
     OptixBuiltinISOptions builtin_is_options = {};
     builtin_is_options.usesMotionBlur = false;    
     builtin_is_options.builtinISModuleType = OPTIX_PRIMITIVE_TYPE_SPHERE;
@@ -256,6 +262,7 @@ void rt_pipe::build_index_from_codebook(half* d_codebook, float* centers, float*
     RayGenSbtRecord rg_sbt;
     rg_sbt.data.ray_origin = d_ray_origin;
     OPTIX_CHECK(optixSbtRecordPackHeader(raygen_prog_group, &rg_sbt));
+    CUDA_CHECK(cudaMemcpy(reinterpret_cast<void*>(raygen_record), &rg_sbt, raygen_record_size, cudaMemcpyHostToDevice));
     sbt.raygenRecord = raygen_record;
 
     CUdeviceptr miss_record;
@@ -294,7 +301,7 @@ void rt_pipe::set_ray_origin(float* ray_origin, int num_rays) {
     d_ray_origin = ray_origin;
 }
 
-void rt_pipe::run() {
+void rt_pipe::run(int num_rays) {
     OPTIX_CHECK(optixLaunch(pipeline, stream, d_params, sizeof(Params), &sbt, SPACE, 1, 1));
 }
 
@@ -307,6 +314,7 @@ torch::Tensor rt_gemv(
     torch::Tensor origins
 )
 {
+    auto dim = input.size (0) ;
 	auto head_dim = input.size(1);
 	auto seq_len  = quantized_w.size(0);
 	auto options = torch::TensorOptions().dtype(torch::kFloat16).device(torch::kCUDA, 0);
@@ -329,13 +337,22 @@ torch::Tensor rt_gemv(
     //     float z = ray * 2;
     // }
     // pipe.set_ray_origin(h_ray_origin, SPACE);
-    pipe.set_ray_origin(origins_ptr, SPACE);  
+    pipe.set_ray_origin(origins_ptr, dim);  
     std::cout << "Origin set" << std::endl;
 
+    cudaEvent_t start, stop;
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
+    cudaEventRecord(start);
     // Launch ray tracing pipeline
-    pipe.run();
+    pipe.run((int) dim / 2);
     CUDA_SYNC_CHECK();
+    cudaEventRecord(stop);
     std::cout << "Launched" << std::endl;
+    cudaEventSynchronize(stop);
+    float milliseconds = 0;
+    cudaEventElapsedTime(&milliseconds, start, stop);
+    std::cout << "Time: " << milliseconds << std::endl;
 
     torch::Tensor o = torch::full({1, seq_len}, 0, options);
 	return o;
