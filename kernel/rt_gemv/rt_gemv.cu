@@ -21,9 +21,9 @@
 #include <sutil/Trackball.h>
 #include "rt_gemv.hpp"
 
-#define SPACE 64
-#define ENTRY 256
-#define RADIUS 0.5
+// #define SPACE 64
+// #define ENTRY 256
+// #define RADIUS 0.5
 
 
 template <typename T>
@@ -64,7 +64,7 @@ public:
 
     CUstream                        stream;
 public:
-	rt_pipe() {
+	rt_pipe(int seq_len, int head_dim, int dim) {
         std::cout << "a" << std::endl;
         options.validationMode = OPTIX_DEVICE_CONTEXT_VALIDATION_MODE_ALL;
 		options.logCallbackFunction = &context_log_cb;
@@ -82,11 +82,11 @@ public:
         std::cout << "g" << std::endl;
         CUDA_CHECK(cudaStreamCreate(&stream));
         std::cout << "h" << std::endl;
-        CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_ray_origin), sizeof(float3) * 1 * SPACE));
+        CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_ray_origin), sizeof(float3) * seq_len * head_dim * dim / 2));
         std::cout << "i" << std::endl;
 	}
 
-	void build_index_from_codebook(half* codebook, float* centers, float* radius);
+	void build_index_from_codebook(half* codebook, float* centers, float* radius, int seq_len, int head_dim, int dim);
 
     void set_ray_origin(float* ray_origin, int num_rays);
 
@@ -94,7 +94,7 @@ public:
 };
 
 // Codebook: (SPACE=64, ENTRY=256, 2)
-void rt_pipe::build_index_from_codebook(half* d_codebook, float* centers, float* radius) {
+void rt_pipe::build_index_from_codebook(half* d_codebook, float* centers, float* radius, int seq_len, int head_dim, int dim) {
 
     std::cout << "Begin" << std::endl;
     // float3 *centers = new float3 [SPACE * ENTRY];
@@ -124,7 +124,7 @@ void rt_pipe::build_index_from_codebook(half* d_codebook, float* centers, float*
     OptixBuildInput sphere_input = {};
     sphere_input.type = OPTIX_BUILD_INPUT_TYPE_SPHERES;
     sphere_input.sphereArray.vertexBuffers = &d_centers;
-    sphere_input.sphereArray.numVertices = SPACE * ENTRY;
+    sphere_input.sphereArray.numVertices = seq_len * head_dim * dim / 2;
     sphere_input.sphereArray.radiusBuffers = &d_radius;
     sphere_input.sphereArray.flags = sphere_input_flags;
     sphere_input.sphereArray.numSbtRecords = 1;
@@ -135,7 +135,18 @@ void rt_pipe::build_index_from_codebook(half* d_codebook, float* centers, float*
     CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_temp_buffer_gas), gas_buffer_sizes.tempSizeInBytes));
     CUdeviceptr d_gas_output_buffer;
     CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_gas_output_buffer), gas_buffer_sizes.outputSizeInBytes));
+    cudaEvent_t start, stop;
+    float milliseconds = 0;
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
+    cudaEventRecord(start);
     OPTIX_CHECK(optixAccelBuild(context, 0, &accel_options, &sphere_input, 1, d_temp_buffer_gas, gas_buffer_sizes.tempSizeInBytes, d_gas_output_buffer, gas_buffer_sizes.outputSizeInBytes, &gas_handle, nullptr, 0));    
+    CUDA_SYNC_CHECK();
+    cudaEventRecord(stop);
+    cudaEventSynchronize(stop);
+    milliseconds = 0;
+    cudaEventElapsedTime(&milliseconds, start, stop);
+    std::cout << "Time: " << milliseconds << std::endl;
     CUDA_CHECK(cudaFree(reinterpret_cast<void*>(d_temp_buffer_gas)));
     std::cout << "1" << std::endl;
 
@@ -276,8 +287,8 @@ void rt_pipe::build_index_from_codebook(half* d_codebook, float* centers, float*
     sbt.missRecordStrideInBytes = sizeof(MissSbtRecord);
     sbt.missRecordCount = 1;  
 
-    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_hit_record), sizeof(float) * SPACE * ENTRY));
-    CUDA_CHECK(cudaMemset(reinterpret_cast<void*>(d_hit_record), 0, sizeof(float) * SPACE * ENTRY));
+    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_hit_record), sizeof(float) * seq_len * head_dim * dim / 2));
+    CUDA_CHECK(cudaMemset(reinterpret_cast<void*>(d_hit_record), 0, sizeof(float) * seq_len * head_dim * dim / 2));
     CUdeviceptr hitgroup_record;
     size_t hitgroup_record_size = sizeof(HitGroupSbtRecord);
     CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&hitgroup_record), hitgroup_record_size));
@@ -302,7 +313,7 @@ void rt_pipe::set_ray_origin(float* ray_origin, int num_rays) {
 }
 
 void rt_pipe::run(int num_rays) {
-    OPTIX_CHECK(optixLaunch(pipeline, stream, d_params, sizeof(Params), &sbt, SPACE, 1, 1));
+    OPTIX_CHECK(optixLaunch(pipeline, stream, d_params, sizeof(Params), &sbt, num_rays, 1, 1));
 }
 
 torch::Tensor rt_gemv(
@@ -314,20 +325,22 @@ torch::Tensor rt_gemv(
     torch::Tensor origins
 )
 {
-    auto dim = input.size (0) ;
-	auto head_dim = input.size(1);
+    auto dim = input.size (1) ;
+	auto head_dim = input.size(0);
 	auto seq_len  = quantized_w.size(0);
+    printf ("dim: %d, head_dim: %d, seq_len: %d\n", dim, head_dim, seq_len);
 	auto options = torch::TensorOptions().dtype(torch::kFloat16).device(torch::kCUDA, 0);
 
-	half* codebook_ptr = reinterpret_cast<half*>(codebook.data_ptr<at::Half>());
+	// half* codebook_ptr = reinterpret_cast<half*>(codebook.data_ptr<at::Half>());
+    half* codebook_ptr ;
     half* input_ptr = reinterpret_cast<half*>(input.data_ptr<at::Half>());
     float* centers_ptr = centers.data_ptr<float>();
     float* radius_ptr = radius.data_ptr<float>();
     float* origins_ptr = origins.data_ptr<float>();
 
     std::cout << "Work Begins" << std::endl;
-	rt_pipe pipe;
-	pipe.build_index_from_codebook(codebook_ptr, centers_ptr, radius_ptr);
+	rt_pipe pipe (seq_len, head_dim, dim);
+	pipe.build_index_from_codebook(codebook_ptr, centers_ptr, radius_ptr, seq_len, head_dim, dim);
     std::cout << "Pipeline built" << std::endl;
     // Set ray origin with input
     // float3 *h_ray_origin = new float3 [SPACE];
@@ -337,20 +350,21 @@ torch::Tensor rt_gemv(
     //     float z = ray * 2;
     // }
     // pipe.set_ray_origin(h_ray_origin, SPACE);
-    pipe.set_ray_origin(origins_ptr, dim);  
+    pipe.set_ray_origin(origins_ptr, seq_len * head_dim * dim / 2);  
     std::cout << "Origin set" << std::endl;
-
+    
     cudaEvent_t start, stop;
+    float milliseconds = 0;
     cudaEventCreate(&start);
     cudaEventCreate(&stop);
     cudaEventRecord(start);
     // Launch ray tracing pipeline
-    pipe.run((int) dim / 2);
+    pipe.run(seq_len * head_dim * dim / 2);
     CUDA_SYNC_CHECK();
     cudaEventRecord(stop);
     std::cout << "Launched" << std::endl;
     cudaEventSynchronize(stop);
-    float milliseconds = 0;
+    milliseconds = 0;
     cudaEventElapsedTime(&milliseconds, start, stop);
     std::cout << "Time: " << milliseconds << std::endl;
 

@@ -19,7 +19,7 @@ extern "C" __global__ void __raygen__rg() {
     const float3 origin = make_float3 (rgData->ray_origin[ray_idx * 3], rgData->ray_origin[ray_idx * 3 + 1], rgData->ray_origin[ray_idx * 3 + 2]);
     // const float tmp = rgData->ray_origin[ray_idx];
     // const float3 origin = make_float3 (tmp, tmp, tmp);
-    // rtPrintf("Ray:%d : (%6.3f, %6.3f, %6.3f)\n", ray_idx, origin.x, origin.y, origin.z);
+    // printf ("Ray:%d : (%6.3f, %6.3f, %6.3f)\n", ray_idx, origin.x, origin.y, origin.z);
     optixTrace(params.handle, 
                origin, 
                direction, 
@@ -46,7 +46,7 @@ extern "C" __global__ void __anyhit__ah() {
     const HitGroupData* hit_record = (HitGroupData*)optixGetSbtDataPointer();
     // rtPrintf ("AnyHit: (%d, %d, %d)\n", idx.x, idx.y, idx.z);
     int ray_idx = idx.x * dim.y * dim.z + idx.y * dim.z + idx.z ;
-    hit_record->hit_record[ray_idx] = 1.0f;
+    // hit_record->hit_record[ray_idx] = 1.0f;
 }
 
 extern "C" __global__ void __closesthit__ch() {
