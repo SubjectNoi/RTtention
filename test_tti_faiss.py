@@ -43,7 +43,7 @@ def read_ibin(filename, start_idx=0, chunk_size=None):
 
 d = 200
 n = 1000000
-q = 1000
+q = 10000
 
 xb = read_fbin ("/home/wennitao/workspace/tti1M/base.1M.fbin")
 xq = read_fbin ("/home/wennitao/workspace/tti1M/query.public.100K.fbin")
@@ -53,7 +53,7 @@ print (xb.shape, xq.shape)
 
 res = faiss.StandardGpuResources()
 # index = faiss.index_factory(d, "IVF4096,Flat", faiss.METRIC_INNER_PRODUCT)
-index = faiss.index_factory(d, "IVF4096,PQ40x12", faiss.METRIC_INNER_PRODUCT)
+index = faiss.index_factory(d, "IVF4096,PQ100x8", faiss.METRIC_INNER_PRODUCT)
 co = faiss.GpuClonerOptions()
 co.useFloat16 = True
 
@@ -62,9 +62,9 @@ co.useFloat16 = True
 # index.add (xb)
 
 # index = faiss.index_gpu_to_cpu (index)
-# faiss.write_index (index, "/home/wennitao/workspace/tti1M/index.IVF4096.PQ40x12.1M.index")
+# faiss.write_index (index, "/home/wennitao/workspace/tti1M/index.IVF4096.PQ100x8.1M.index")
 
-index = faiss.read_index ("/home/wennitao/workspace/tti1M/index.IVF4096.PQ40x12.1M.index")
+index = faiss.read_index ("/home/wennitao/workspace/tti1M/index.IVF4096.PQ100x8.1M.index")
 # index = faiss.read_index ("/home/wennitao/workspace/tti1M/index.1M.index")
 # index = faiss.index_cpu_to_gpu(res, 0, index, co)
 
@@ -80,4 +80,4 @@ gt_D, gt_I = gt_index.search(xq[:q], 100)
 recall = 0
 for i in range (q):
     recall += gt_I[i][0] in I[i]
-print (recall / 1000)
+print (recall / 10000)
