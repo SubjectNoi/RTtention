@@ -53,8 +53,12 @@ xq = read_fbin ("/home/wennitao/workspace/tti1M/query.public.100K.fbin")
 
 print (xb.shape, xq.shape)
 
-nlists = 4096
-nprobe = 256
+stat = []
+for i in range(d):
+    stat.append([i, np.min(xb[:, i]), np.max(xb[:, i]), np.mean(xb[:, i]), np.std(xb[:, i])])
+
+nlists = 100
+nprobe = 32
 
 # kmeans = KMeans(n_clusters=nlists, init='scalable-k-means++', n_init=32, max_iter=600).fit(xb)
 # cluster_centroids = kmeans.cluster_centers_
@@ -63,11 +67,13 @@ nprobe = 256
 # cluster_centroids = np.array (cluster_centroids, dtype=np.float32)
 # labels = np.array (labels, dtype=np.int32)
 
-# np.save ("/home/wennitao/workspace/tti1M/cluster_centroids.npy", cluster_centroids)
-# np.save ("/home/wennitao/workspace/tti1M/labels.npy", labels)
+# np.save ("/home/wennitao/workspace/tti1M/100_cluster_centroids.npy", cluster_centroids)
+# np.save ("/home/wennitao/workspace/tti1M/100_labels.npy", labels)
 
-cluster_centroids = np.load ("/home/wennitao/workspace/tti1M/cluster_centroids.npy")
-labels = np.load ("/home/wennitao/workspace/tti1M/labels.npy")
+cluster_centroids = np.load ("/home/wennitao/workspace/tti1M/100_cluster_centroids.npy")
+labels = np.load ("/home/wennitao/workspace/tti1M/100_labels.npy")
+
+print ("1st cluster finished. ")
 
 cluster_points = {}
 for i in range (nlists):
@@ -86,14 +92,20 @@ m = 100
 nbits = 8
 pq_d = int (d // m)
 
+max_dist = []
+for i in range(m):
+    res = 0.0
+    for j in range(pq_d):
+        res += (stat[i * pq_d + j][2] ** 2)
+    max_dist.append(res ** 0.5)
+
 codebook = {}
 
-# PQ on residual inside cluster
 # for cluster_id in range (nlists):
-#     cur_cluster_points = cluster_points[cluster_id]
 #     for d in range (m):
-#         subdim_cluster_points = cur_cluster_points[:, d*pq_d:(d+1)*pq_d] - cluster_centroids[cluster_id][d*pq_d:(d+1)*pq_d]
-#         kmeans = KMeans(n_clusters=min (2 ** nbits, subdim_cluster_points.shape[0]), init='k-means++', n_init=32, max_iter=600).fit(subdim_cluster_points)
+#         cur_cluster_points = cluster_points[cluster_id]
+#         subdim_cluster_points = cur_cluster_points[:, d*pq_d:(d+1)*pq_d]
+#         kmeans = KMeans(n_clusters=min (2 ** nbits, subdim_cluster_points.shape[0]), init='scalable-k-means++', n_init=32, max_iter=600).fit(subdim_cluster_points)
 #         sub_cluster_centroids = kmeans.cluster_centers_
 #         sub_labels = kmeans.labels_
 #         sub_cluster_centroids = np.array (sub_cluster_centroids, dtype=np.float32)
@@ -103,10 +115,14 @@ codebook = {}
 #         np.save ("/home/wennitao/workspace/tti1M/cluster_%d/sub_%d_centroids.npy" % (cluster_id, d), sub_cluster_centroids)
 #         np.save ("/home/wennitao/workspace/tti1M/cluster_%d/sub_%d_labels.npy" % (cluster_id, d), sub_labels)
 
+# from multiprocessing import Pool
+# with Pool(32) as p:
+#     p.map(buildPQ, range (nlists * m))
+
 # PQ on all residual
-residual = np.zeros ((n, m * pq_d), dtype=np.float32)
-for cluster_id in range (nlists):
-    residual[labels == cluster_id] = xb[labels == cluster_id] - cluster_centroids[cluster_id]
+# residual = np.zeros ((n, d), dtype=np.float32)
+# for cluster_id in range (nlists):
+#     residual[labels == cluster_id] = xb[labels == cluster_id] - cluster_centroids[cluster_id]
 
 # for d in range (m):
 #     subdim_residual = residual[:, d*pq_d:(d+1)*pq_d]
@@ -120,20 +136,22 @@ for cluster_id in range (nlists):
 
 quantized = np.zeros ((n, m), dtype=np.int32)
 
-# for cluster_id in range (nlists):
-#     sub_centroids = []
-#     sub_labels = []
-#     for d in range (m):
-#         sub_centroids.append (np.load ("/home/wennitao/workspace/tti1M/cluster_%d/sub_%d_centroids.npy" % (cluster_id, d)))
-#         sub_labels.append (np.load ("/home/wennitao/workspace/tti1M/cluster_%d/sub_%d_labels.npy" % (cluster_id, d)))
-#     codebook[cluster_id] = np.array (sub_centroids)
-#     quantized[labels == cluster_id] = np.array ([sub_labels[d] for d in range (m)]).T
+for cluster_id in range (nlists):
+    sub_centroids = []
+    sub_labels = []
+    for dim in range (m):
+        sub_centroids.append (np.load ("/home/wennitao/workspace/tti1M/cluster_%d/sub_%d_centroids.npy" % (cluster_id, dim)))
+        sub_labels.append (np.load ("/home/wennitao/workspace/tti1M/cluster_%d/sub_%d_labels.npy" % (cluster_id, dim)))
+    codebook[cluster_id] = np.array (sub_centroids)
+    quantized[labels == cluster_id] = np.array ([sub_labels[dim] for dim in range (m)]).T
 
-for dim in range (m):
-    sub_centroids = np.load ("/home/wennitao/workspace/tti1M/PQ100x8/sub_%d_centroids.npy" % dim)
-    sub_labels = np.load ("/home/wennitao/workspace/tti1M/PQ100x8/sub_%d_labels.npy" % dim)
-    codebook[dim] = sub_centroids
-    quantized[:, dim] = sub_labels
+print ("2nd cluster finished. ")
+
+# for dim in range (m):
+#     sub_centroids = np.load ("/home/wennitao/workspace/tti1M/PQ100x8/sub_%d_centroids.npy" % dim)
+#     sub_labels = np.load ("/home/wennitao/workspace/tti1M/PQ100x8/sub_%d_labels.npy" % dim)
+#     codebook[dim] = sub_centroids
+#     quantized[:, dim] = sub_labels
 
 recall = 0
 
@@ -146,30 +164,61 @@ gt_index = faiss.index_cpu_to_gpu(res, 0, gt_index, co)
 gt_index.add(xb)
 gt_D, gt_I = gt_index.search(xq[:q], 100)
 
-def checkIntersect (x, q, r):
-    r = math.sqrt (r ** 2 + x[0] ** 2 + x[1] ** 2)
-    if (q[0] - x[0]) ** 2 + (q[1] - x[1]) ** 2 <= r ** 2:
-        return np.dot (x, q)
-    else:
-        return -1e10
+# def checkIntersect (x, q, r):
+#     r = math.sqrt (r ** 2 + x[0] ** 2 + x[1] ** 2)
+#     if (q[0] - x[0]) ** 2 + (q[1] - x[1]) ** 2 <= r ** 2:
+#         return np.dot (x, q)
+#     else:
+#         return -1e10
+
+def checkIntersect (query, sub_centroids, radius, max_dist):
+    # query: (pq_d, )
+    # sub_centroids: (2 ** nbits, pq_d)
+    # radius: float
+    # return: (2 ** nbits, )
+    hit_count = 0
+    dis = np.zeros ((sub_centroids.shape[0], ), dtype=np.float32)
+    for i in range (sub_centroids.shape[0]):
+        if (query[0] - sub_centroids[i, 0]) ** 2 + (query[1] - sub_centroids[i, 1]) ** 2 <= ((radius * max_dist) ** 2 + sub_centroids[i, 0] ** 2 + sub_centroids[i, 1] ** 2):
+            hit_count += 1
+            dis[i] = np.dot (query, sub_centroids[i])
+        else:
+            dis[i] = -max_dist
+    # dis = np.dot (query, sub_centroids.T)
+    # dis[np.sqrt ((query[0] - sub_centroids[:, 0]) ** 2 + (query[1] - sub_centroids[:, 1]) ** 2) > (radius * max_dist) ** 2] = -max_dist
+    # print ("hit_count: ", hit_count)
+    # print ("hit_rate: ", hit_count / sub_centroids.shape[0])
+    return dis, hit_count
+
+radius = 0.7
 
 def IVFPQ(query_id):
     # IVFPQ
     # for query_id in range (q):
+    hit_count = 0
     query = xq[query_id]
     final_dis = np.full ((n, ), -1e10, dtype=np.float32)
     chosen_clusters = np.argsort (np.dot (cluster_centroids, query))[-nprobe:]
+
     for cluster_id in chosen_clusters:
         dis = np.zeros ((cluster_points[cluster_id].shape[0], ), dtype=np.float32)
         sub_labels = quantized[labels == cluster_id]
-        cur_query = query - cluster_centroids[cluster_id]
+        # cur_query = query - cluster_centroids[cluster_id]
+        cur_query = query
         for dim in range (m):
             sub_query = cur_query[dim*pq_d:(dim+1)*pq_d]
-            sub_centroids = codebook[dim] # 2 ** nbits
-            # sub_labels = quantized[:, dim] # n
-            for sub_centroid_id in range (sub_centroids.shape[0]):
-                dis += np.where (sub_labels[:, dim] == sub_centroid_id, np.dot (sub_query, sub_centroids[sub_centroid_id]), 0)
+            sub_centroids = codebook[cluster_id][dim] # 2 ** nbits
+
+            # intersect query with sub_centroids
+            sub_centroids_dis, cur_hit_count = checkIntersect (sub_query, sub_centroids, radius, max_dist[dim])
+            dis += sub_centroids_dis[sub_labels[:, dim]]
+            hit_count += cur_hit_count
+
+            # direct compute
+            # dis += np.dot (sub_query, sub_centroids[sub_labels[:, dim]].T)
         final_dis[labels == cluster_id] = np.maximum (final_dis[labels == cluster_id], dis)
+
+    print ("hit count rate: ", hit_count / (nprobe * m * 2 ** nbits))
 
     final_I = np.argsort (-final_dis)
     final_I = final_I[:100]

@@ -7,7 +7,7 @@ from faiss.contrib.inspect_tools import get_pq_centroids
 # first train a codebook on (:, 128)
 dev = "cuda:0"
 
-seq_len = 1
+seq_len = 65536
 head = 32
 dim = 128
 
