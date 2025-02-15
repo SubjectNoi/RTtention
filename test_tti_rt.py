@@ -58,7 +58,7 @@ for i in range(d):
     stat.append([i, np.min(xb[:, i]), np.max(xb[:, i]), np.mean(xb[:, i]), np.std(xb[:, i])])
 
 nlists = 100
-nprobe = 32
+nprobe = 16
 
 # kmeans = KMeans(n_clusters=nlists, init='scalable-k-means++', n_init=32, max_iter=600).fit(xb)
 # cluster_centroids = kmeans.cluster_centers_
@@ -176,12 +176,17 @@ def checkIntersect (query, sub_centroids, radius, max_dist):
     # sub_centroids: (2 ** nbits, pq_d)
     # radius: float
     # return: (2 ** nbits, )
+    original_radius = radius * max_dist
     hit_count = 0
     dis = np.zeros ((sub_centroids.shape[0], ), dtype=np.float32)
     for i in range (sub_centroids.shape[0]):
-        if (query[0] - sub_centroids[i, 0]) ** 2 + (query[1] - sub_centroids[i, 1]) ** 2 <= ((radius * max_dist) ** 2 + sub_centroids[i, 0] ** 2 + sub_centroids[i, 1] ** 2):
+        new_radius = math.sqrt (original_radius ** 2 + sub_centroids[i, 0] ** 2 + sub_centroids[i, 1] ** 2)
+        if (query[0] - sub_centroids[i, 0]) ** 2 + (query[1] - sub_centroids[i, 1]) ** 2 <= new_radius ** 2:
             hit_count += 1
-            dis[i] = np.dot (query, sub_centroids[i])
+            # dis[i] = np.dot (query, sub_centroids[i])
+            t_hit = 1 - math.sqrt (new_radius ** 2 - (query[0] - sub_centroids[i, 0]) ** 2 - (query[1] - sub_centroids[i, 1]) ** 2)
+            assert (t_hit >= 0)
+            dis[i] = (query[0] ** 2 + query[1] ** 2 - original_radius ** 2 + (1 - t_hit) ** 2) / 2
         else:
             dis[i] = -max_dist
     # dis = np.dot (query, sub_centroids.T)
@@ -222,6 +227,8 @@ def IVFPQ(query_id):
 
     final_I = np.argsort (-final_dis)
     final_I = final_I[:100]
+    # percentage of gt_I[query_id] in final_I
+    # return np.sum (np.isin (gt_I[query_id][:100], final_I))
     return gt_I[query_id][0] in final_I
 
 from multiprocessing import Pool
